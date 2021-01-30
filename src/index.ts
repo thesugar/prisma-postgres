@@ -1,32 +1,19 @@
 'use strict'
 
 import { PrismaClient } from '@prisma/client'
+import express from 'express'
 
 const prisma = new PrismaClient()
+const app = express() // express() を call することで Express アプリケーション を作成
 
-const main = async () => {
-    // .create: Creates a new `User` record.
-    const newUser = await prisma.user.create({
-        data: {
-            name: 'Ryohei',
-            email: 'ryohe@example.com',
-            posts: { // nested writes (i.e. creating both a `User` and `Post` record in the same query)
-                create: {
-                    title: 'Hello Prisma!'
-                },
-            },
-        },
-    })
-    console.log('Created new user:', newUser)
+app.use(express.json()) // express.json() ミドルウェアを追加：JSON データが Express によって適切に処理されるようにする
 
-    // `findMany`: reads all existing `User` records from the database
-    const allUsers = await prisma.user.findMany({
-        include: { posts: true }, // additionally loads the related `Post` records for each `User` record
-    })
-    console.log('All users: ')
-    console.dir(allUsers, { depth: null })
-}
+// REST API routes will go here
+app.get('/users', async (req, res) => {
+    const users = await prisma.user.findMany()
+    res.json(users)
+})
 
-main()
-.catch((e) => console.error(e))
-.finally(async () => await prisma.$disconnect())  // close any open database connections
+app.listen(3000, () => {
+    console.log('REST API server ready at: http://localhost:3000')
+})

@@ -195,3 +195,62 @@ main()
 ```bash
 npx ts-node src/index.ts
 ```
+
+### Step5. REST API ルーティングを実装する
+
+Express をインストールして、REST API ルーティングを実装する。まずはシンプルに、`GET` リクエストを使って API からすべての user を取得してみる。user のデータは Prisma Client を使ってデータベースから取得される。
+
+まずは以下のコマンドで Express と TypeScript 用の依存パッケージをインストールする。
+
+```bash
+yarn add express
+yarn add --dev @types/express
+```
+
+続いて、`index.ts` を以下のように書き換える。
+
+```ts
+import { PrismaClient } from '@prisma/client'
+import express from 'express'
+
+// PrismaClient をインスタンス化
+const prisma = new PrismaClient()
+// Express アプリケーションを作成
+const app = express()
+
+// express.json() ミドルウェアを追加して、JSON データを適切に扱えるようにする
+app.use(express.json())
+
+// ... your REST API routes will go here
+
+// 3000 番ポートでサーバーを立てる
+app.listen(3000, () =>
+  console.log('REST API server ready at: http://localhost:3000'),
+)
+```
+
+さらに、`// ... your REST API routes will go here` の部分を以下コードに書き換える。
+
+```ts
+app.get('/users', async (req, res) => {
+  const users = await prisma.user.findMany()
+  res.json(users)
+})
+```
+
+ここまでできたら保存して、以下コマンドでローカルの web サーバーを立てる。
+
+```bash
+yarn ts-node src/index.ts
+# npx ts-node src/index.ts
+```
+
+`/users` のルーティングにアクセスするためには `http://localhost:3000/users` にブラウザからアクセスする（もしくは curl を使ってリクエストする: `curl http://localhost:3000/users`）。
+
+そうすると、以下のような出力が得られる。
+
+```
+[{"id":1,"email":"alice@prisma.io","name":"Alice"}]
+```
+
+ここでは `posts` の配列は含まれていないことに注意。これは、`findMany` を呼ぶときに `include` オプションを渡していないから。
