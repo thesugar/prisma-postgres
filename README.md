@@ -254,3 +254,176 @@ yarn ts-node src/index.ts
 ```
 
 ここでは `posts` の配列は含まれていないことに注意。これは、`findMany` を呼ぶときに `include` オプションを渡していないから。
+
+### Step6. もっと REST API ルーティングを実装する
+
+Step5 では GET リクエストのみ扱ったが、それ以外の HTTP メソッドにも対応させる。
+
+|HTTP メソッド|ルート|説明|
+|--|--|--|
+|`GET`|`/feed`|すべての *公開された（published である）* post を取得する|
+|`GET`|`/post/:id`|ID によって指定した投稿を取得する|
+|`POST`|`/user`|新しい user を作成する|
+|`POST`|`/post`|新しい post を（下書き状態で）作成する|
+|`PUT`|`/post/publish/:id`|ある投稿の `published` フィールドを `true` にする|
+|`DELETE`|`/post/:id`|ID によって指定した投稿を削除する|
+
+まずは以下のコードで `GET` リクエストに対する API ルーティングを実装する。
+
+```ts
+// すべての *公開された（published である）* post を取得する
+app.get('/feed', async (req, res) => {
+  const posts = await prisma.post.findMany({
+    where: { published: true }, // where でフィルタリング（published: true のレコードのみ取得）
+    include: { author: true } // 各 post に関連する `author` の情報も取得する
+  })
+  res.json(posts)
+})
+
+// ID によって指定した投稿を取得する
+app.get(`/post/:id`, async (req, res) => {
+  const { id } = req.params  // URL path（`/post/:id`）から `id` を読む
+  const post = await prisma.post.findFirst({
+    where: { id: Number(id) },
+  })
+  res.json(post)
+})
+```
+
+ここまでできたら、以下でサーバーを起動
+
+```bash
+yarn ts-node src/index.ts
+# npx ts-node src/index.ts
+```
+
+```bash
+curl http://localhost:3000/feed
+```
+
+まだ published なデータがないので、空配列が返ってくる。
+
+```
+[]
+```
+
+```bash
+curl http://localhost:3000/post/1
+```
+
+こうすると、最初に作成した投稿が返ってくる。
+
+```
+{"id":1,"title":"Hello World","content":null,"published":false,"authorId":1}
+```
+
+次に、`POST` ルーティングを実装する。
+
+```ts
+// 新しい user を作成する
+app.post(`/user`, async (req, res) => {
+  const result = await prisma.user.create({
+    data: { ...req.body },
+  })
+  res.json(result)
+})
+
+// 新しい post を（下書き状態で）作成する
+app.post(`/post`, async (req, res) => {
+  const { title, content, authorEmail } = req.body
+  const result = await prisma.post.create({
+    data: {
+      title,
+      content,
+      published: false,
+      author: { connect: { email: authorEmail } },
+    },
+  })
+  res.json(result)
+})
+```
+
+上記 2 つの POST ルーティングはどちらも似たような実装。`/user` では `req.body` の中身をそのまま `prisma.user.create` に渡しているが、`/post` では、まず `req.body` の中身を展開してから `prisma.post.create` に渡している。リクエストボディの JSON の構造が、Prisma Client が期待する構造と一致しないためそうする必要があるからという理由だが、後者のほうがコードの可読性も高い気がする。
+
+書き方として覚えないといけない部分は `author: { connect: { email: authorEmail } },` のところくらい。post を作成するとき、email (authorEmail) を使って、関連する user と接続 (connect) している。
+
+以下のようにして user 作成の挙動をテストできる。
+
+```bash
+curl -X POST -H "Content-Type: application/json" -d '{"name":"Bob", "email":"bob@prisma.io"}' http://localhost:3000/user
+```
+
+出力は以下。
+
+```
+{"id":2,"email":"bob@prisma.io","name":"Bob"}
+```
+
+post 作成の挙動をテストするには以下。
+
+```
+curl -X POST -H "Content-Type: application/json" -d '{"title":"I am Bob", "authorEmail":"bob@prisma.io"}' http://localhost:3000/post
+```
+
+出力は次のようになる。
+
+```
+{"id":2,"title":"I am Bob","content":null,"published":false,"authorId":2}
+```
+
+最後に `PUT` と `DELETE` のルーティングを実装する。
+
+```ts
+// ある投稿の `published` フィールドを `true` にする
+app.put('/post/publish/:id', async (req, res) => {
+  const { id } = req.params
+  const post = await prisma.post.update({
+    where: { id: Number(id) },
+    data: { published: true },
+  })
+  res.json(post)
+})
+
+// ID によって指定した投稿を削除する
+app.delete(`/post/:id`, async (req, res) => {
+  const { id } = req.params
+  const post = await prisma.post.delete({
+    where: { id: Number(id) },
+  })
+  res.json(post)
+})
+```
+
+まずは PUT リクエストを送ってみる。
+
+```bash
+curl -X PUT http://localhost:3000/post/publish/2
+```
+
+ID の値が `2` の投稿を publish する。その後 `/feed` （published な投稿の一覧）にアクセスすれば、ID が `2` の投稿が含まれているはず。
+
+最後に、DELETE リクエストを送ってみよう。
+
+```bash
+curl -X DELETE http://localhost:3000/post/1
+```
+
+ID が `1` の投稿を削除する。削除されたことを確かめるには `/post/1` に GET リクエストを送ってみればよい（null が返ってくる）。
+
+#### Key point
+
+- CRUD
+    - C -> prisma.hoge.create
+    - R -> prisma.hoge.findFirst / prisma.hoge.findMany
+    - U -> prisma.hoge.update
+    - D -> prisma.hoge.delete
+
+- Prisma Client における基本的なプロパティ
+    - `where`: SQL の where 句に相当。フィルタリングを行う。
+    - `include`: 関連するデータも取得（post を取得するときに、関連する user を取得する等）
+    - `data`: create や update のとき、データの内容を指定する。
+
+### 関連ドキュメントなど
+
+- [Prisma documentation](https://www.prisma.io/docs)
+- [prisma-examples (GitHub)](https://github.com/prisma/prisma-examples/)
